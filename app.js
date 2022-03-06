@@ -61,7 +61,7 @@ app.use((error, req, res, next) => {
 });
 
 // IPFS
-createIPFS();
+// createIPFS();
 
 // prevent crashing on mongoose error
 const connectToDatabase = () => {

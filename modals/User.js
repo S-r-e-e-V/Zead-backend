@@ -20,63 +20,51 @@ var userSchema = new mongoose.Schema(
       unique: true,
       required: true,
     },
-
     website: {
       type: String,
       default: null,
     },
-
     twitter_handle: {
       type: String,
       default: null,
     },
-
     instagram_handle: {
       type: String,
       default: null,
     },
-
+    discord_handle: {
+      type: String,
+      default: null,
+    },
     profile_image: {
       type: String,
       default: null,
     },
-
     profile_banner: {
       type: String,
       default: null,
     },
     followers: [
-      new mongoose.Schema(
-        {
-          user_id: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-          },
-        },
-        { timestamps: true }
-      ),
+      // new mongoose.Schema(
+      //   {
+      //     user_id: {
+      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      //     },
+      //   },
+      //   { timestamps: true }
+      // ),
     ],
     following: [
-      new mongoose.Schema(
-        {
-          user_id: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-          },
-        },
-        { timestamps: true }
-      ),
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
     ],
     favourite_content: [
-      new mongoose.Schema(
-        {
-          content_id: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Content",
-          },
-        },
-        { timestamps: true }
-      ),
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Content",
+      },
     ],
   },
   {

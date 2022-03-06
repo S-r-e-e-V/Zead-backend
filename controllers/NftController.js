@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
 
 const User = require("../modals/User");
 const Content = require("../modals/Content");
@@ -26,9 +27,14 @@ const addUser = async (req, res, next) => {
       // instagram_handle: req.body.instagram_handle,
     });
     const response = await user.save();
-    res
-      .status(200)
-      .json({ message: "Successfully added", user_id: response._id });
+    if (response) {
+      let token = jwt.sign(
+        { wallet_address: req.body.wallet_address, user_id: response._id },
+        process.env.JWT_KEY
+        // { expiresIn: "7d" }
+      );
+      res.status(200).json({ message: "Successfully added", token });
+    }
   } catch (error) {
     if (error.code === 11000) {
       try {
@@ -38,11 +44,14 @@ const addUser = async (req, res, next) => {
           },
           { _id: 1 }
         );
-        if (response)
-          res
-            .status(200)
-            .json({ message: "User already exist", user_id: response });
-        else
+        if (response) {
+          let token = jwt.sign(
+            { wallet_address: req.body.wallet_address, user_id: response._id },
+            process.env.JWT_KEY
+            // { expiresIn: "7d" }
+          );
+          res.status(200).json({ message: "User already exist", token });
+        } else
           res.status(400).json({ error: { message: "Something went wrong" } });
       } catch (error) {
         error.status = 400;
@@ -64,10 +73,11 @@ const uploadProfilePic = async (req, res, next) => {
   );
   try {
     const response = await User.updateOne(
-      { _id: req.params.id },
+      { _id: req.user.user_id },
       { profile_image: s3_result.Location }
     );
-    if (response) res.status(200).json(response);
+    if (response)
+      res.status(200).json({ message: "Profile pic updated successfully" });
     else res.status(400).json({ error: { message: "Failed" } });
   } catch (error) {
     error.status = 400;
@@ -84,16 +94,97 @@ const uploadProfileBanner = async (req, res, next) => {
   );
   try {
     const response = await User.updateOne(
-      { _id: req.params.id },
+      { _id: req.user.user_id },
       { profile_banner: s3_result.Location }
     );
-    if (response) res.status(200).json(response);
+    if (response)
+      res.status(200).json({ message: "Profile banner updated successfully" });
     else res.status(400).json({ error: { message: "Failed" } });
   } catch (error) {
     error.status = 400;
     next(error);
   }
 };
+const editUser = async (req, res, next) => {
+  try {
+    // add image to s3 and place url
+    const response = await User.updateOne(
+      {
+        _id: req.user.user_id,
+      },
+      {
+        username: req.body.username,
+        bio: req.body.bio,
+        email: req.body.email,
+        website: req.body.website,
+        twitter_handle: req.body.twitter_handle,
+        instagram_handle: req.body.instagram_handle,
+        discord_handle: req.body.discord_handle,
+        profile_image: req.body.profile_image,
+        profile_banner: req.body.profile_banner,
+      }
+    );
+    if (response) res.status(200).json({ message: "Successfully updated" });
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+// when a user follow
+const addFollowers = async (req, res, next) => {
+  // follower_id: person who follow
+  // following_id: following celebrity
+  try {
+    const follower = await User.findOneAndUpdate(
+      { _id: req.user.user_id },
+      {
+        $push: {
+          following: req.body.following_id,
+        },
+      }
+    );
+    const following = await User.updateOne(
+      { _id: req.body.following_id },
+      {
+        $push: {
+          followers: req.user.user_id,
+        },
+      }
+    );
+    const notification = new Notification({
+      message: "New follower",
+      description: `${follower?.username} started following`,
+      send_to: [req.body.following_id],
+    });
+    await notification.save();
+    if (follower && following) {
+      res.status(200).json({ message: "Successfull" });
+    } else {
+      res.status(400).json({ error: { message: "Something went wrong" } });
+    }
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+// add favorite_content
+const favoriteContent = async (req, res, next) => {
+  try {
+    const response = await User.updateOne(
+      { _id: req.user.user_id },
+      {
+        $push: { favourite_content: req.body.content_id },
+      }
+    );
+
+    if (response) res.status(200).json({ message: "Added to favorites" });
+    else res.status(400).json({ error: { message: "Data not found" } });
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+
 // add new content
 // add notification to followers
 const addContent = async (req, res, next) => {
@@ -151,23 +242,7 @@ const addIPFS = async (req, res, next) => {
     next(error);
   }
 };
-// add favor\ite_content
-const favoriteContent = async (req, res, next) => {
-  try {
-    const response = await User.updateOne(
-      { _id: req.params.id },
-      {
-        $push: { favourite_content: { content_id: response?.current_owner } },
-      }
-    );
 
-    if (response) res.status(200).json(response);
-    else res.status(400).json({ error: { message: "Data not found" } });
-  } catch (error) {
-    error.status = 400;
-    next(error);
-  }
-};
 // on normal sales happens
 // add notification to seller
 const addSales = async (req, res, next) => {
@@ -222,36 +297,6 @@ const addNewBid = async (req, res, next) => {
       } else res.status(400).json({ error: { message: "Data not found" } });
     } else {
       res.status(400).json({ error: { message: "Sorry bidding expired" } });
-    }
-  } catch (error) {
-    error.status = 400;
-    next(error);
-  }
-};
-// when a user follow
-//  add notification to follower
-const addFollowers = async (req, res, next) => {
-  // follower_id: person who follow
-  // following_id: following celebrity
-  try {
-    const follower = await User.updateOne(
-      { _id: req.body.follower_id },
-      {
-        $push: {
-          following: { user_id: req.body.following_id },
-        },
-      }
-    );
-    const following = await User.updateOne(
-      { _id: req.body.following_id },
-      {
-        $push: {
-          followers: { user_id: req.body.follower_id },
-        },
-      }
-    );
-    if (follower && following) {
-      res.status(200).json({ message: "Successfull" });
     }
   } catch (error) {
     error.status = 400;
@@ -344,6 +389,7 @@ const getNotification = async (req, res, next) => {
 
 module.exports = {
   addUser,
+  editUser,
   uploadProfilePic,
   uploadProfileBanner,
   addContent,
