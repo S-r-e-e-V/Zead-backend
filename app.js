@@ -29,7 +29,10 @@ const app = express();
 // cors
 // const domainsFromEnv = process.env.CORS_DOMAINS || ""
 // const whitelist = domainsFromEnv.split(",").map(item => item.trim())
-const whitelist = ["http://localhost:3000"];
+const whitelist = [
+  "http://localhost:3000",
+  "https://zead-frontend.herokuapp.com",
+];
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin || whitelist.indexOf(origin) !== -1) {
