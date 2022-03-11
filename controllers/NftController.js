@@ -6,12 +6,12 @@ const Content = require("../modals/Content");
 const Sales = require("../modals/Sales");
 const Bidding = require("../modals/Bidding");
 const Notification = require("../modals/Notification");
+const Collection = require("../modals/Collection");
 const TTL = require("../modals/TTL");
 
-const { uploadFile } = require("../utils/s3");
 const { addDataToIPFS, getDataFromIPFS } = require("../utils/ipfs");
 
-// post methods
+// profile
 
 // add new user
 const addUser = async (req, res, next) => {
@@ -63,43 +63,12 @@ const addUser = async (req, res, next) => {
     }
   }
 };
-const uploadProfilePic = async (req, res, next) => {
-  const profile_image = req.file;
-  console.log(profile_image);
-  const s3_result = await uploadFile(
-    profile_image,
-    "application-images/" + Date.now() + "_" + profile_image.originalname,
-    true
-  );
+// get single user
+const getUser = async (req, res, next) => {
   try {
-    const response = await User.updateOne(
-      { _id: req.user.user_id },
-      { profile_image: s3_result.Location }
-    );
-    if (response)
-      res.status(200).json({ message: "Profile pic updated successfully" });
-    else res.status(400).json({ error: { message: "Failed" } });
-  } catch (error) {
-    error.status = 400;
-    next(error);
-  }
-};
-const uploadProfileBanner = async (req, res, next) => {
-  const profile_banner = req.file;
-  console.log(profile_banner);
-  const s3_result = await uploadFile(
-    profile_banner,
-    "application-images/" + Date.now() + "_" + profile_banner.originalname,
-    true
-  );
-  try {
-    const response = await User.updateOne(
-      { _id: req.user.user_id },
-      { profile_banner: s3_result.Location }
-    );
-    if (response)
-      res.status(200).json({ message: "Profile banner updated successfully" });
-    else res.status(400).json({ error: { message: "Failed" } });
+    const response = await User.findOne({ _id: req.params.id });
+    if (response) res.status(200).json(response);
+    else res.status(400).json({ error: { message: "Data not found" } });
   } catch (error) {
     error.status = 400;
     next(error);
@@ -124,7 +93,9 @@ const editUser = async (req, res, next) => {
         profile_banner: req.body.profile_banner,
       }
     );
-    if (response) res.status(200).json({ message: "Successfully updated" });
+    if (response?.modifiedCount > 0)
+      res.status(200).json({ message: "Successfully updated" });
+    else res.status(400).json({ error: { message: "Not able to update" } });
   } catch (error) {
     error.status = 400;
     next(error);
@@ -185,51 +156,257 @@ const favoriteContent = async (req, res, next) => {
   }
 };
 
+// content
+
 // add new content
-// add notification to followers
 const addContent = async (req, res, next) => {
   try {
-    // add image to ipfs and place hash
-    const ipfs_hash = "hash#hash#hash@hash";
-    const content_url = req.body.content;
-
-    const content = new Content({
-      content_url: content_url,
-      name: req.body.name,
-      description: req.body.description,
-      current_owner: req.body.owner_id,
-      original_owner: req.body.owner_id,
-      expiry_date: req.body.type === "bid" ? req.body.expiry_date : null,
-      hash: ipfs_hash,
-      type: req.body.type,
-      price: req.body.price,
-    });
-    const response = await content.save();
-    if (req.body.type === "bid" && response) {
-      try {
-        const bidding = new Bidding({
-          owner_id: req.body.owner_id,
-          content_id: response?._id,
-        });
-        const bidding_response = await bidding.save();
-        const ttl = new TTL({
-          expireAt: new Date(req.body.expiry_date),
-          owner_id: req.body.owner_id,
-          content_id: response?._id,
-          bidding_id: bidding_response?._id,
-        });
-        await ttl.save();
-      } catch (error) {
-        error.status = 400;
-        next(error);
+    if (req.body.supply <= 100 && req.body.supply > 0) {
+      // add image to ipfs and place hash
+      let collection_id = "";
+      let items_array = [];
+      if (req.body.collection_id) {
+        collection_id = req.body.collection_id;
+      } else {
+        const collection_response = await new Collection({
+          original_owner: req.user.user_id,
+        }).save();
+        collection_id = collection_response._id;
+        await Collection.updateOne(
+          { _id: collection_id },
+          { name: collection_id }
+        );
       }
+      let content;
+
+      for (let i = 0; i < req.body.supply; i++) {
+        content = new Content({
+          original_owner: req.user.user_id,
+          ipfs_hash: req.body.ipfs_hash,
+          content_type: req.body.content_type,
+          blockchain_type: req.body.blockchain_type,
+          freeze: req.body.freeze,
+          current_owner: req.user.user_id,
+          collection_id: collection_id,
+          name: req.body.name,
+          description: req.body.description,
+          external_link: req.body.external_link,
+          properties: req.body.properties,
+          levels: req.body.levels,
+          stats: req.body.stats,
+          unlockable_content: req.body.unlockable_content,
+          is_sensitive: req.body.is_sensitive,
+          supply_number: i + 1,
+        });
+        items_array.push(content);
+      }
+      // const response = await content.save();
+      const response = await Content.insertMany(items_array);
+      // if (req.body.type === "bid" && response) {
+      //   try {
+      //     const bidding = new Bidding({
+      //       owner_id: req.body.owner_id,
+      //       content_id: response?._id,
+      //     });
+      //     const bidding_response = await bidding.save();
+      //     const ttl = new TTL({
+      //       expireAt: new Date(req.body.expiry_date),
+      //       owner_id: req.body.owner_id,
+      //       content_id: response?._id,
+      //       bidding_id: bidding_response?._id,
+      //     });
+      //     await ttl.save();
+      //   } catch (error) {
+      //     error.status = 400;
+      //     next(error);
+      //   }
+      // }
+      if (response) res.status(200).json({ message: "Successfully added" });
+      else res.status(400).json({ error: { message: "Something went wrong" } });
+    } else {
+      res.stats(400).json({
+        error: { message: "Supply shoould be between 1 and 100 (inclusive)" },
+      });
     }
-    res.status(200).json({ message: "Successfully added" });
   } catch (error) {
     error.status = 400;
     next(error);
   }
 };
+// edit content
+const editContent = async (req, res, next) => {
+  try {
+    let collection_id = "";
+    if (req.body.collection_id) {
+      collection_id = req.body.collection_id;
+    } else {
+      const collection_response = await new Collection({
+        original_owner: req.user.user_id,
+      }).save();
+      collection_id = collection_response._id;
+      await Collection.updateOne(
+        { _id: collection_id },
+        { name: collection_id }
+      );
+    }
+    const response = await Content.updateMany(
+      {
+        ipfs_hash: req.body.ipfs_hash,
+        current_owner: req.user.user_id,
+        is_deleted: false,
+      },
+      {
+        $set: {
+          name: req.body.name,
+          description: req.body.description,
+          external_link: req.body.external_link,
+          collection_id: collection_id,
+          properties: req.body.properties,
+          levels: req.body.levels,
+          stats: req.body.stats,
+          unlockable_content: req.body.unlockable_content,
+          is_sensitive: req.body.is_sensitive,
+        },
+      }
+    );
+    if (response?.modifiedCount > 0)
+      res.status(200).json({ message: "Successfully updated" });
+    else res.status(400).json({ error: { message: "Not able to update" } });
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+// // get all contents in a collection
+// const getAllCollectionContents = async (req, res, next) => {
+//   try {
+//     const response = await Content.find({
+//       original_owner: req.params.id,
+//     }).sort({
+//       createdAt: -1,
+//     });
+//     if (response)
+//       res.status(200).json({ count: response.length, list: response });
+//     else res.status(400).json({ error: { message: "Something went wrong" } });
+//   } catch (error) {
+//     error.status = 400;
+//     next(error);
+//   }
+// };
+// // get single content
+// const getContent = async (req, res, next) => {
+//   try {
+//     const response = await Content.findOne({ _id: req.params.id });
+//     if (response) res.status(200).json(response);
+//     else res.status(400).json({ error: { message: "Data not found" } });
+//   } catch (error) {
+//     error.status = 400;
+//     next(error);
+//   }
+// };
+
+// collection
+
+// add new Collection
+const addCollection = async (req, res, next) => {
+  try {
+    const collection = new Collection({
+      name: req.body.name,
+      url: req.body.url,
+      description: req.body.description,
+      logo_image: req.body.logo_image,
+      featured_image: req.body.featured_image,
+      banner_image: req.body.banner_image,
+      category: req.body.category,
+      website: req.body.website,
+      twitter_handle: req.body.twitter_handle,
+      instagram_handle: req.body.instagram_handle,
+      discord_handle: req.body.discord_handle,
+      medium: req.body.medium,
+      blockchain_type: req.body.blockchain_type,
+      is_sensitive: req.body.is_sensitive,
+      original_owner: req.user.user_id,
+    });
+    const response = await collection.save();
+    if (response) res.status(200).json({ message: "Successfully added" });
+    else res.status(400).json({ error: { message: "Something went wrong" } });
+  } catch (error) {
+    if (error.code === 11000) {
+      res.status(400).json({ error: { message: "Name already taken" } });
+    } else {
+      error.status = 400;
+      next(error);
+    }
+  }
+};
+// edit collection
+const editCollection = async (req, res, next) => {
+  try {
+    // add image to s3 and place url
+    const response = await Collection.updateOne(
+      {
+        _id: req.body.collection_id,
+      },
+      {
+        name: req.body.name,
+        url: req.body.url,
+        description: req.body.description,
+        logo_image: req.body.logo_image,
+        featured_image: req.body.featured_image,
+        banner_image: req.body.banner_image,
+        category: req.body.category,
+        website: req.body.website,
+        twitter_handle: req.body.twitter_handle,
+        instagram_handle: req.body.instagram_handle,
+        discord_handle: req.body.discord_handle,
+        medium: req.body.medium,
+        blockchain_type: req.body.blockchain_type,
+        is_sensitive: req.body.is_sensitive,
+      }
+    );
+    if (response?.modifiedCount > 0)
+      res.status(200).json({ message: "Successfully updated" });
+    else res.status(400).json({ error: { message: "Not able to update" } });
+  } catch (error) {
+    if (error.code === 11000) {
+      res.status(400).json({ error: { message: "Name already taken" } });
+    } else {
+      error.status = 400;
+      next(error);
+    }
+  }
+};
+// get all collections of a perticular user
+const getAllUserCollections = async (req, res, next) => {
+  try {
+    const response = await Collection.find({
+      original_owner: req.params.id,
+    }).sort({
+      createdAt: -1,
+    });
+    if (response)
+      res.status(200).json({ count: response.length, list: response });
+    else res.status(400).json({ error: { message: "Something went wrong" } });
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+// get individual collections
+const getCollection = async (req, res, next) => {
+  try {
+    const response = await Collection.findOne({
+      _id: req.params.id,
+    });
+    if (response) res.status(200).json(response);
+    else res.status(400).json({ error: { message: "Something went wrong" } });
+  } catch (error) {
+    error.status = 400;
+    next(error);
+  }
+};
+//
+
 const addIPFS = async (req, res, next) => {
   try {
     // const cid = await addDataToIPFS(req.file);
@@ -242,7 +419,6 @@ const addIPFS = async (req, res, next) => {
     next(error);
   }
 };
-
 // on normal sales happens
 // add notification to seller
 const addSales = async (req, res, next) => {
@@ -347,27 +523,7 @@ const getAllUsers = async (req, res, next) => {
 //   }
 // };
 // get single user
-const getUser = async (req, res, next) => {
-  try {
-    const response = await User.findOne({ _id: req.params.id });
-    if (response) res.status(200).json(response);
-    else res.status(400).json({ error: { message: "Data not found" } });
-  } catch (error) {
-    error.status = 400;
-    next(error);
-  }
-};
-// get single content
-const getContent = async (req, res, next) => {
-  try {
-    const response = await Content.findOne({ _id: req.params.id });
-    if (response) res.status(200).json(response);
-    else res.status(400).json({ error: { message: "Data not found" } });
-  } catch (error) {
-    error.status = 400;
-    next(error);
-  }
-};
+
 // get notification of a user
 const getNotification = async (req, res, next) => {
   try {
@@ -388,22 +544,31 @@ const getNotification = async (req, res, next) => {
 };
 
 module.exports = {
+  // profile
   addUser,
   editUser,
-  uploadProfilePic,
-  uploadProfileBanner,
-  addContent,
+  addFollowers,
   favoriteContent,
+  getUser,
+
+  // content
+  addContent,
+  editContent,
+  // getAllCollectionContents,
+  // getContent,
+
+  // collections
+  addCollection,
+  editCollection,
+  getAllUserCollections,
+  getCollection,
 
   addIPFS,
 
   addSales,
   addNewBid,
-  addFollowers,
 
   getAllUsers,
   // getAllContent,
-  getUser,
-  getContent,
   getNotification,
 };
